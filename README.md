@@ -79,6 +79,75 @@ GoTaskQ is under active development and not yet ready for production use. This r
 
 If you’re interested in this project or want to collaborate, feel free to open an issue or reach out.
 
+Absolutely. Below is:
+
+1. ✅ A **fixed Mermaid diagram** reflecting the full architecture with all interactions.
+2. ✅ A professional, GitHub-friendly **Architecture section** you can directly use in your README.
+
+---
+
+## Architecture
+
+```mermaid
+flowchart TD
+    subgraph UI
+        A[Dashboard / REST API]
+    end
+
+    subgraph Core
+        B["Producer (gRPC API)"]
+        D[Scheduler]
+        F[Worker]
+    end
+
+    subgraph Infra
+        C["Message Queue (RabbitMQ / SQS)"]
+        E["Database (PostgreSQL)"]
+    end
+
+    %% Dashboard Flow
+    A -->|"Submits Task (REST)"| B
+    A -->|Stores task metadata| E
+
+    %% Producer Flow
+    B -->|Validates & pushes task| C
+    B -->|Stores task metadata| E
+
+    %% Worker Flow
+    F -->|Pulls Task| C
+    F -->|Executes Task| F
+    F -->|Updates status, logs| E
+
+    %% Scheduler Flow
+    D -->|Reads scheduled tasks| E
+    D -->|"Submits to producer (gRPC)"| B
+
+    %% Task retry/loop
+    C -->|Delivers task| F
+```
+
+This system is a modular, self-hosted distributed task queue platform built in Go, designed for high-performance internal use.
+
+### Components
+
+- **Dashboard / REST API**
+  A UI and API layer to submit tasks, track job status, view logs, retry/cancel jobs, and configure the system.
+
+- **Producer**
+  Exposes a gRPC interface for submitting tasks. Validates incoming payloads using task-specific logic and pushes them to the configured message queue (RabbitMQ/SQS). Stores all task metadata into the database.
+
+- **Message Queue**
+  RabbitMQ, AWS SQS, or other pluggable queue systems. Delivers tasks to workers in a load-balanced, at-most-once manner.
+
+- **Worker(s)**
+  Workers pull tasks from the queue, execute the corresponding registered task function, and update execution status, logs, metadata, etc., back to the database.
+
+- **Scheduler**
+  A lightweight background service that checks for scheduled (delayed) tasks in the database. When the scheduled time arrives, it submits them through the Producer, reusing the same validation and queueing pipeline.
+
+- **Database**
+  Central state store for job metadata, task status, logs, retry counts, execution time, and scheduling info.
+
 ## License
 
 MIT
