@@ -73,19 +73,6 @@ At its core, GoTaskQ connects a message queue to a user-defined task registry an
 - API key authentication
 - Logging for all task lifecycle events
 
-## Status
-
-GoTaskQ is under active development and not yet ready for production use. This repository is currently a staging ground for architectural decisions and implementation work.
-
-If you’re interested in this project or want to collaborate, feel free to open an issue or reach out.
-
-Absolutely. Below is:
-
-1. ✅ A **fixed Mermaid diagram** reflecting the full architecture with all interactions.
-2. ✅ A professional, GitHub-friendly **Architecture section** you can directly use in your README.
-
----
-
 ## Architecture
 
 ```mermaid
@@ -147,6 +134,12 @@ This system is a modular, self-hosted distributed task queue platform built in G
 
 - **Database**
   Central state store for job metadata, task status, logs, retry counts, execution time, and scheduling info.
+
+## Status
+
+GoTaskQ is under active development and not yet ready for production use. This repository is currently a staging ground for architectural decisions and implementation work.
+
+If you’re interested in this project or want to collaborate, feel free to open an issue or reach out.
 
 ## License
 
