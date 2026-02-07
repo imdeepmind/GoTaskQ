@@ -76,64 +76,117 @@ At its core, GoTaskQ connects a message queue to a user-defined task registry an
 ## Architecture
 
 ```mermaid
-flowchart TD
-    subgraph UI
-        A[Dashboard / REST API]
+flowchart LR
+    subgraph Clients
+        UI[Web UI]
+        API[REST / gRPC Clients]
     end
 
-    subgraph Core
-        B["Producer (gRPC API)"]
-        D[Scheduler]
-        F[Worker]
+    subgraph Producer
+        P[Task Producer]
     end
 
-    subgraph Infra
-        C["Message Queue (RabbitMQ / SQS)"]
-        E["Database (PostgreSQL)"]
+    subgraph Broker
+        Q[(RabbitMQ / SQS Queue)]
     end
 
-    %% Dashboard Flow
-    A -->|"Submits Task (REST)"| B
-    A -->|Stores task metadata| E
+    subgraph Workers
+        W1[Worker 1]
+        W2[Worker 2]
+        WN[Worker N]
+    end
 
-    %% Producer Flow
-    B -->|Validates & pushes task| C
-    B -->|Stores task metadata| E
+    subgraph Analytics
+        DB[(Tracking / Analytics DB)]
+    end
 
-    %% Worker Flow
-    F -->|Pulls Task| C
-    F -->|Executes Task| F
-    F -->|Updates status, logs| E
+    %% Client to Producer
+    UI --> P
+    API --> P
 
-    %% Scheduler Flow
-    D -->|Reads scheduled tasks| E
-    D -->|"Submits to producer (gRPC)"| B
+    %% Producer actions
+    P -->|Publish Task| Q
+    P -.->|Best-effort Store Metadata| DB
 
-    %% Task retry/loop
-    C -->|Delivers task| F
+    %% Queue to Workers
+    Q -->|Exclusive Delivery| W1
+    Q -->|Exclusive Delivery| W2
+    Q -->|Exclusive Delivery| WN
+
+    %% Worker lifecycle
+    W1 -->|Execute Task| W1
+    W2 -->|Execute Task| W2
+    WN -->|Execute Task| WN
+
+    %% Worker tracking
+    W1 -.->|Best-effort Store Result| DB
+    W2 -.->|Best-effort Store Result| DB
+    WN -.->|Best-effort Store Result| DB
+
+    %% Acknowledgment
+    W1 -->|ACK| Q
+    W2 -->|ACK| Q
+    WN -->|ACK| Q
 ```
 
 This system is a modular, self-hosted distributed task queue platform built in Go, designed for high-performance internal use.
 
 ### Components
 
-- **Dashboard / REST API**
-  A UI and API layer to submit tasks, track job status, view logs, retry/cancel jobs, and configure the system.
+#### Dashboard / API Layer
 
-- **Producer**
-  Exposes a gRPC interface for submitting tasks. Validates incoming payloads using task-specific logic and pushes them to the configured message queue (RabbitMQ/SQS). Stores all task metadata into the database.
+  Provides a Web UI and REST/gRPC APIs for submitting tasks and viewing task-related information such as submission history, execution status, and logs.
 
-- **Message Queue**
-  RabbitMQ, AWS SQS, or other pluggable queue systems. Delivers tasks to workers in a load-balanced, at-most-once manner.
+  This layer acts purely as an entry point and observability interface. It does **not** participate in task execution and does not make any execution decisions.
 
-- **Worker(s)**
-  Workers pull tasks from the queue, execute the corresponding registered task function, and update execution status, logs, metadata, etc., back to the database.
+#### Producer
 
-- **Scheduler**
-  A lightweight background service that checks for scheduled (delayed) tasks in the database. When the scheduled time arrives, it submits them through the Producer, reusing the same validation and queueing pipeline.
+  The Producer receives task submission requests from the API layer and is responsible for:
 
-- **Database**
-  Central state store for job metadata, task status, logs, retry counts, execution time, and scheduling info.
+  * Validating incoming task payloads and metadata
+  * Assigning a unique task identifier
+  * Publishing the task message to the configured message broker (RabbitMQ or SQS)
+
+  The Producer may **best-effort persist task metadata** to the database for tracking and analytics.
+  The database is **not** a source of truth, and failures to persist metadata do not affect task execution.
+
+#### Message Queue (Broker)**
+
+  A pluggable message broker such as RabbitMQ or AWS SQS that serves as the **authoritative source of truth** for task delivery.
+
+  Responsibilities include:
+
+  * Durable storage of task messages
+  * Exclusive delivery of each task to exactly one worker at a time
+  * Preventing concurrent execution of the same task
+  * Redelivery of tasks if a worker crashes or fails to acknowledge
+
+  Tasks are removed from the queue **only after successful acknowledgment** by a worker.
+  The system provides **at-least-once delivery semantics**.
+
+#### Worker(s)
+
+  Workers are long-running processes that continuously poll the message queue for tasks.
+
+  Each worker:
+
+  * Receives tasks exclusively from the broker
+  * Executes the corresponding registered task function
+  * Best-effort persists execution metadata (status, logs, timing, errors) to the database
+  * Acknowledges the task after successful execution
+
+  Workers are stateless, do not coordinate with each other, and **never read from the database** to determine execution behavior.
+
+#### Database (Tracking / Analytics)
+
+  A persistence layer used solely for **observability and analytics**, including:
+
+  * Task submission metadata
+  * Execution status and timestamps
+  * Logs and error details
+
+  The database is **non-authoritative** and **eventually consistent**.
+  Missing or inconsistent records do not impact correctness or execution of tasks.
 
 ## Status
 
